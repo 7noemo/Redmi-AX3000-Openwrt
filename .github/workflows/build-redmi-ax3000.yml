@@ -116,10 +116,10 @@ jobs:
                  ath11k-firmware-ipq5018 ath11k-firmware-qcn6122 \
                  ipq-wifi-redmi_ax3000 wireless-regdb iw luci-app-ttyd \
                  kmod-tcp-bbr kmod-sched kmod-sched-cake \
-                 curl ca-bundle wget-ssl htop nano iperf3 mtr socat ip-full \
+                 curl ca-bundle wget-ssl htop nano iperf3 mtr-nojson socat ip-full \
                  luci-app-commands luci-app-uhttpd luci-app-ddns luci-app-upnp \
                  miniupnpd-nftables luci-app-wol luci-app-nlbwmon luci-app-sqm \
-                 luci-app-https-dns-proxy luci-app-watchcat luci-app-zerotier \
+                 luci-app-https-dns-proxy luci-app-watchcat \
                  luci-proto-wireguard \
                  luci-app-passwall2 xray-core v2ray-geoip v2ray-geosite \
                  chinadns-ng; do

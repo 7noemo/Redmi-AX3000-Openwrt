@@ -78,7 +78,7 @@ ra81-wifi-diag
 | 类别 | 内容 |
 |---|---|
 | 代理 | **PassWall 2 + Xray**（nftables 透明代理，含 chinadns-ng、geoip/geosite 规则库） |
-| 网络 | SQM（CAKE 限速抗 bufferbloat）、DDNS（含 Cloudflare）、UPnP、WOL、ZeroTier、WireGuard |
+| 网络 | SQM（CAKE 限速抗 bufferbloat）、DDNS（含 Cloudflare）、UPnP、WOL、WireGuard |
 | 观测 | nlbwmon 流量统计、watchcat、https-dns-proxy、命令面板、uhttpd 设置 |
 | 命令行 | curl、wget-ssl、htop、nano、iperf3、mtr、socat、ip-full |
 | 内核 | `kmod-tcp-bbr` + `kmod-sched`（BBR 要的 fq）+ `kmod-sched-cake` |
