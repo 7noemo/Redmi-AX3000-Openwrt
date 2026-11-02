@@ -1,0 +1,17 @@
+--- a/luci-app-passwall2/Makefile
++++ b/luci-app-passwall2/Makefile
+@@ -23,9 +23,13 @@
+ 
+ LUCI_TITLE:=LuCI support for PassWall 2
+ LUCI_PKGARCH:=all
++# RA81 / OpenWrt 23.05: geoview 0.2.9 requires Go >= 1.25 while the 23.05
++# golang feed is 1.21.7, so it cannot be built here. It is optional at
++# runtime - nftables.sh does `[ -z "$(first_type geoview)" ] &&
++# enable_geoview_ip=0` - so drop it from the dependency list.
+ LUCI_DEPENDS:=+coreutils +coreutils-base64 +coreutils-nohup +coreutils-timeout +curl \
+ 	+ip-full +libuci-lua +lua +luci-compat +luci-lib-jsonc +lyaml +resolveip +tcping \
+-	+geoview +v2ray-geoip +v2ray-geosite \
++	+v2ray-geoip +v2ray-geosite \
+ 	+unzip
+ 
+ define Package/$(PKG_NAME)/config
