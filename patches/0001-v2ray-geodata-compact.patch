@@ -1,0 +1,39 @@
+--- a/v2ray-geodata/Makefile
++++ b/v2ray-geodata/Makefile
+@@ -12,22 +12,27 @@
+ 
+ include $(INCLUDE_DIR)/package.mk
+ 
+-GEOIP_VER:=202610290022
+-GEOIP_FILE:=geoip.dat.$(GEOIP_VER)
++# RA81: the rootfs slot is only 36MiB, so Loyalsoldier's geoip.dat (15.7MiB)
++# plus geosite.dat (10.7MiB) cannot ship. Use MetaCubeX instead:
++#   geoip-lite.dat  0.2MiB  (CN-only subset - all the "bypass China" rule needs)
++#   geosite.dat     4.1MiB  (full domain categories, 2.6x smaller upstream)
++# Upstream only publishes a rolling "latest" tag, hence HASH:=skip.
++GEOIP_VER:=lite
++GEOIP_FILE:=geoip-lite.dat
+ define Download/geoip
+-  URL:=https://github.com/Loyalsoldier/geoip/releases/download/$(GEOIP_VER)/
+-  URL_FILE:=geoip.dat
++  URL:=https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/
++  URL_FILE:=geoip-lite.dat
+   FILE:=$(GEOIP_FILE)
+-  HASH:=fbf747a085be25eb61ecac8c27140b4ab0bf8181af6fdb104caa325bd93cf117
++  HASH:=skip
+ endef
+ 
+-GEOSITE_VER:=202610302203
+-GEOSITE_FILE:=geosite.dat.$(GEOSITE_VER)
++GEOSITE_VER:=metacubex
++GEOSITE_FILE:=geosite.dat
+ define Download/geosite
+-  URL:=https://github.com/Loyalsoldier/v2ray-rules-dat/releases/download/$(GEOSITE_VER)/
++  URL:=https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/
+   URL_FILE:=geosite.dat
+   FILE:=$(GEOSITE_FILE)
+-  HASH:=5424b45285742debc038b0543ebc6d03c2be400519237879b3f146032e9bedf8
++  HASH:=skip
+ endef
+ 
+ define Package/v2ray-geodata/template

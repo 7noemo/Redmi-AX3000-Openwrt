@@ -95,6 +95,17 @@ jobs:
     - name: Install feeds
       run: cd openwrt && ./scripts/feeds install -a
 
+    - name: Patch feed packages (shrink geo rules to fit 36MiB)
+      run: |
+        cd openwrt
+        P="$GITHUB_WORKSPACE/patches/0001-v2ray-geodata-compact.patch"
+        patch -p1 -d feeds/passwall_packages --dry-run < "$P"
+        patch -p1 -d feeds/passwall_packages < "$P"
+        # 26.4MiB of Loyalsoldier rules would never fit; assert the swap happened
+        grep -q "geoip-lite.dat" feeds/passwall_packages/v2ray-geodata/Makefile
+        grep -q "MetaCubeX"      feeds/passwall_packages/v2ray-geodata/Makefile
+        echo "geo rules -> MetaCubeX geoip-lite.dat (0.2MiB) + geosite.dat (4.1MiB)"
+
     - name: Load custom configuration
       run: |
         [ -e files ] && mv files openwrt/files

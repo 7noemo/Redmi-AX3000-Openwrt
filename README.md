@@ -75,6 +75,17 @@ ra81-wifi-diag
 `rootfs` / `rootfs_1` 各 **36MiB**（`0x02400000`），内核 + squashfs 都得塞进去，
 剩下的才是 `/overlay`。所以清单是按「体积/收益」筛的，不是一股脑塞满。
 
+先别把 **128MB NAND** 当成 128MB 可用空间——它是这么切的（`cat /proc/mtd` 实测 22 个分区）：
+
+| 分区 | 偏移 | 大小 | 说明 |
+|---|---|---|---|
+| `rootfs` | 0x0a8000 | 36MiB | A 槽（当前系统） |
+| `rootfs_1` | 0x2e80000 | 36MiB | B 槽（升级目标） |
+| `overlay` | 0x5280000 | 31MiB | 原厂数据区，OpenWrt 没用它 |
+
+所以真正能塞固件的只有 **36MiB**，另外 256MB 是 RAM（跑起来的内存，集成在 IPQ5000 里），
+既不能拿来装包也不能持久化。
+
 | 类别 | 内容 |
 |---|---|
 | 代理 | **PassWall 2 + Xray**（nftables 透明代理，含 chinadns-ng、geoip/geosite 规则库） |
@@ -86,6 +97,11 @@ ra81-wifi-diag
 刻意**没装**的：Argon 主题、adblock、frpc、Docker、samba（无 USB）——
 都在 1MB 以上且非必需，会把 `/overlay` 挤到没法用。想加就自己 `opkg install`，
 构建时也会用 `stat` 卡一道 34MiB 的尺寸守卫，超了直接让 CI 失败，不会发出一个刷不进去的包。
+
+> **规则库做了替换**：PassWall2 默认拉的 Loyalsoldier 规则是 geoip 15.7MiB + geosite 10.7MiB
+> = **26.4MiB**，光规则就顶满大半个槽位。改成本仓的 `patches/0001-v2ray-geodata-compact.patch`：
+> MetaCubeX `geoip-lite.dat`（0.2MiB，只留 CN 段，"绕过大陆"够用）+ `geosite.dat`（4.1MiB，全量域名分类），
+> 合计 4.3MiB，省下 22MiB。如果上游改了 Makefile 结构，这个补丁会直接打失败让 CI 停住，不会静默退回大规则库。
 
 ### 6. 其余
 
