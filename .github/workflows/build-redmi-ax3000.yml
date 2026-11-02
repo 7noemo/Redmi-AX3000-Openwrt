@@ -109,10 +109,12 @@ jobs:
         make defconfig
         echo "--- target / device ---"
         grep -E "^CONFIG_TARGET_(ipq50xx|MULTI_PROFILE|DEVICE_ipq50xx_arm_DEVICE_redmi_ax3000)" .config
+        echo "--- Chinese UI switch ---"
+        grep -E "^CONFIG_LUCI_LANG_zh_Hans=" .config || { echo "FAIL: zh_Hans language switch missing"; exit 1; }
         fail=0
         for p in kmod-ath11k kmod-ath11k-ahb kmod-ath11k-pci \
                  ath11k-firmware-ipq5018 ath11k-firmware-qcn6122 \
-                 ipq-wifi-redmi_ax3000 wireless-regdb iw luci-i18n-base-zh-cn; do
+                 ipq-wifi-redmi_ax3000 wireless-regdb iw luci-app-ttyd; do
           if grep -q "^CONFIG_PACKAGE_$p=y" .config; then
             echo "OK: $p"
           elif grep -q "^# CONFIG_PACKAGE_$p is not set" .config; then
