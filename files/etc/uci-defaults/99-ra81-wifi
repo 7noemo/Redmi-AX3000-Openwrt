@@ -1,0 +1,56 @@
+#!/bin/sh
+#
+# Redmi AX3000 (RA81) first-boot Wi-Fi defaults
+#
+# Radios are matched by BAND (iw phy info), not by radio index, because the
+# AHB 2.4G phy and the PCIe 5G phy can register in either order depending on
+# driver probe timing. Index-based defaults are the usual reason a "fixed"
+# build still has an unusable 2.4G radio.
+#
+
+[ -x /usr/sbin/iw ] || exit 0
+
+# Wait for ath11k to register the phys (max 20s)
+i=0
+while [ $i -lt 20 ]; do
+	[ -e /sys/class/ieee80211/phy0 ] && break
+	sleep 1
+	i=$((i + 1))
+done
+
+# Generate /etc/config/wireless on first boot if it does not exist yet
+[ -f /etc/config/wireless ] || /sbin/wifi config >/dev/null 2>&1
+[ -f /etc/config/wireless ] || exit 0
+
+applied=""
+
+for phy in $(ls /sys/class/ieee80211 2>/dev/null); do
+	info=$(iw phy "$phy" info 2>/dev/null)
+	[ -n "$info" ] || continue
+
+	radio=$(uci -q show wireless 2>/dev/null \
+		| sed -n "s/^wireless\.\(radio[0-9]*\)\.phy='$phy'$/\1/p" | head -1)
+	[ -n "$radio" ] || continue
+
+	if echo "$info" | /usr/bin/grep -q "2412 MHz"; then
+		# 2.4G (IPQ5000): HE40 on a clean channel, no DFS involved
+		uci -q set wireless.$radio.channel='6'
+		uci -q set wireless.$radio.htmode='HE40'
+		band="2.4G($phy)"
+	else
+		# 5G (QCN6102): 160MHz on ch36; ch52-64 are DFS and need a CAC wait
+		uci -q set wireless.$radio.channel='36'
+		uci -q set wireless.$radio.htmode='HE160'
+		band="5G($phy)"
+	fi
+
+	uci -q set wireless.$radio.country='CN'
+	uci -q set wireless.$radio.disabled='0'
+	applied="$applied $radio=$band"
+done
+
+[ -n "$applied" ] && uci -q commit wireless
+logger -t ra81-wifi "first-boot defaults applied:${applied:- none}"
+
+# Everything below is a one-shot job
+exit 0

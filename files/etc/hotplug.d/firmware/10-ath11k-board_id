@@ -1,0 +1,64 @@
+#!/bin/sh
+#
+# ath11k board_id provisioning for Redmi AX3000 (RA81 / Xiaomi CR880x, M81/M79)
+#
+# Why this file exists:
+#   The 2.4GHz radio is the IPQ5000 (AHB) one. ath11k refuses to bring it up
+#   unless board_id-ahb-c000000.wifi exists and matches the board variant:
+#       M81 (Redmi AX3000)      -> 0x24  (wl_pa_type=epa)
+#       M79 (Xiaomi CR880x)     -> 0x10  (wl_pa_type=ipa)
+#   This is THE root cause of "2.4G Wi-Fi missing after flashing OpenWrt".
+#
+# Hardening vs. the original script:
+#   * wl_pa_type is searched across several MTD partitions instead of only
+#     mtdblock15 (partition numbering varies between stock firmware versions),
+#     with a timeout so a large partition can never hang boot
+#   * unknown values now fall back to the correct M81 board id for redmi,ax3000
+#     instead of silently defaulting to the M79 id
+#   * every decision is logged to syslog (logread -e ra81-wifi)
+#
+
+[ -e "/lib/firmware/$FIRMWARE" ] && exit 0
+
+board=$(board_name)
+
+set_board_id() {
+	echo "$1" > "/lib/firmware/$FIRMWARE"
+	logger -t ra81-wifi "board=$(board) wl_pa_type=${2:-unknown} -> board_id=$1"
+}
+
+read_pa_type() {
+	for part in /dev/mtdblock15 /dev/mtdblock14 /dev/mtdblock16 \
+				/dev/mtdblock13 /dev/mtdblock17 /dev/mtdblock12; do
+		[ -r "$part" ] || continue
+		val=$(timeout 3 strings -n 6 "$part" 2>/dev/null \
+			| /usr/bin/grep -m1 '^wl_pa_type=' | cut -d= -f2)
+		[ -n "$val" ] && { echo "$val"; return 0; }
+	done
+	return 1
+}
+
+case "$FIRMWARE" in
+"ath11k/IPQ5018/hw1.0/board_id-ahb-c000000.wifi")
+	case "$board" in
+	redmi,ax3000)
+		pa=$(read_pa_type) || pa=""
+		case "$pa" in
+			ipa) set_board_id 0x10 "$pa" ;;
+			epa) set_board_id 0x24 "$pa" ;;
+			# M81 is the Redmi AX3000 itself: default to its board id
+			*)   set_board_id 0x24 "$pa" ;;
+		esac
+		;;
+	xiaomi,cr880*|xiaomi,cr881x)
+		pa=$(read_pa_type) || pa=""
+		case "$pa" in
+			epa) set_board_id 0x24 "$pa" ;;
+			*)   set_board_id 0x10 "$pa" ;;
+		esac
+		;;
+	esac
+	;;
+esac
+
+exit 0

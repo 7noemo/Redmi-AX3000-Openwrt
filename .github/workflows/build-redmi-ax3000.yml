@@ -1,0 +1,215 @@
+#
+# Build OpenWrt for Redmi AX3000 (RA81 / M81, Qualcomm IPQ5000)
+#
+# Base: hzyitc/openwrt-redmi-ax3000 (ipq50xx mainline, kernel 5.15)
+#       -- the only public tree where the 2.4G (IPQ5000 AHB) radio works,
+#          because it ships the matching board files and ART calibration hooks
+# Pinned to a fixed commit for reproducible builds.
+#
+
+name: Build Redmi AX3000
+
+on:
+  repository_dispatch:
+  workflow_dispatch:
+  schedule:
+    # weekly, Sunday 04:00 UTC = 12:00 CST
+    - cron: '0 4 * * 0'
+
+permissions:
+  contents: write
+
+env:
+  REPO_URL: https://github.com/hzyitc/openwrt-redmi-ax3000
+  REPO_BRANCH: ipq50xx-mainline-kernel-5.15-openwrt-23.05
+  REPO_COMMIT: 6faaa1504fd5c5ca34f61b22ab07851907604c59
+  FEEDS_CONF: feeds.conf.default
+  CONFIG_FILE: redmi-ax3000.config
+  DIY_P1_SH: diy-part1.sh
+  DIY_P2_SH: diy-part2.sh
+  UPLOAD_FIRMWARE: true
+  UPLOAD_RELEASE: true
+  TZ: Asia/Shanghai
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Clean up disk space
+      run: |
+        sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL
+        sudo docker system prune -a -f
+        df -h
+
+    - name: Initialization environment
+      env:
+        DEBIAN_FRONTEND: noninteractive
+      run: |
+        sudo -E apt-get -qq update
+        sudo -E apt-get -qq install --no-install-recommends \
+          ack antlr3 asciidoc autoconf automake autopoint bc binutils bison \
+          build-essential bzip2 ccache cmake cpio curl device-tree-compiler \
+          fastjar flex gawk gettext gcc-multilib g++-multilib git gperf \
+          haveged help2man intltool libc6-dev-i386 libelf-dev libfuse-dev \
+          libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev \
+          libncurses5-dev libncursesw5-dev libpython3-dev libreadline-dev \
+          libssl-dev libtool lrzsz mkisofs msmtp ninja-build p7zip \
+          p7zip-full patch pkgconf python3 python3-pyelftools \
+          python3-setuptools qemu-utils rsync scons squashfs-tools \
+          subversion swig texinfo uglifyjs upx-ucl unzip vim wget xmlto xxd zlib1g-dev
+        sudo -E apt-get -qq autoremove --purge
+        sudo -E apt-get -qq clean
+        sudo timedatectl set-timezone "$TZ"
+        sudo mkdir -p /workdir
+        sudo chown $USER:$GROUPS /workdir
+
+    - name: Clone source code (pinned commit)
+      working-directory: /workdir
+      run: |
+        df -hT $PWD
+        git init -q openwrt
+        cd openwrt
+        git remote add origin "$REPO_URL"
+        git fetch --depth 1 origin "$REPO_COMMIT" \
+          || git fetch --depth 1 origin "$REPO_BRANCH"
+        git checkout -q FETCH_HEAD
+        git log --oneline -1
+        ln -sf /workdir/openwrt "$GITHUB_WORKSPACE/openwrt"
+
+    - name: Verify board support upstream
+      run: |
+        chmod +x "$DIY_P1_SH"
+        cd openwrt
+        "$GITHUB_WORKSPACE/$DIY_P1_SH"
+
+    - name: Load custom feeds
+      run: |
+        [ -e "$FEEDS_CONF" ] && mv "$FEEDS_CONF" openwrt/feeds.conf.default || true
+        cd openwrt
+        ./scripts/feeds update -a
+
+    - name: Install feeds
+      run: cd openwrt && ./scripts/feeds install -a
+
+    - name: Load custom configuration
+      run: |
+        [ -e files ] && mv files openwrt/files
+        [ -e "$CONFIG_FILE" ] && cp "$CONFIG_FILE" openwrt/.config
+        chmod +x "$DIY_P2_SH"
+        cd openwrt
+        "$GITHUB_WORKSPACE/$DIY_P2_SH"
+
+    - name: Build config and verify Wi-Fi packages
+      run: |
+        cd openwrt
+        make defconfig
+        echo "--- target / device ---"
+        grep -E "^CONFIG_TARGET_(ipq50xx|MULTI_PROFILE|DEVICE_ipq50xx_arm_DEVICE_redmi_ax3000)" .config
+        fail=0
+        for p in kmod-ath11k kmod-ath11k-ahb kmod-ath11k-pci \
+                 ath11k-firmware-ipq5018 ath11k-firmware-qcn6122 \
+                 ipq-wifi-redmi_ax3000 wireless-regdb iw luci-i18n-base-zh-cn; do
+          if grep -q "^CONFIG_PACKAGE_$p=y" .config; then
+            echo "OK: $p"
+          elif grep -q "^# CONFIG_PACKAGE_$p is not set" .config; then
+            echo "FAIL: $p was dropped by defconfig (unmet dependency):"
+            grep -A25 "^config PACKAGE_$p\$" tmp/.config-package.in | head -30
+            fail=1
+          else
+            echo "FAIL: $p not in package metadata"
+            fail=1
+          fi
+        done
+        [ "$fail" -eq 0 ] || exit 1
+
+    - name: Download package
+      run: |
+        cd openwrt
+        make download -j$(nproc) || make download -j8 V=s
+        find dl -size -1024c -delete
+
+    - name: Compile the firmware
+      id: compile
+      run: |
+        cd openwrt
+        echo "Using $(($(nproc) - 1)) cores"
+        make -j$(($(nproc) - 1)) || make -j2 || make -j1 V=s
+        echo "status=success" >> "$GITHUB_OUTPUT"
+        echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> "$GITHUB_ENV"
+
+    - name: Organize files
+      id: organize
+      if: env.UPLOAD_FIRMWARE == 'true' && steps.compile.outputs.status == 'success'
+      run: |
+        cd openwrt/bin/targets/*/*
+        rm -rf packages
+        echo "FIRMWARE=$PWD" >> "$GITHUB_ENV"
+        echo "status=success" >> "$GITHUB_OUTPUT"
+        ls -lh
+
+    - name: Upload firmware directory
+      uses: actions/upload-artifact@v4
+      if: steps.organize.outputs.status == 'success' && !cancelled()
+      with:
+        name: OpenWrt_Redmi_AX3000${{ env.FILE_DATE }}
+        path: ${{ env.FIRMWARE }}
+        if-no-files-found: error
+
+    - name: Generate release note (manifest verified)
+      id: tag
+      if: env.UPLOAD_RELEASE == 'true' && steps.compile.outputs.status == 'success' && !cancelled()
+      run: |
+        echo "release_tag=$(date +"%Y.%m.%d-%H%M")" >> "$GITHUB_OUTPUT"
+        MANIFEST=$(ls "$FIRMWARE"/*.manifest 2>/dev/null | head -1)
+        {
+          echo "- 设备：Redmi AX3000 (RA81 / M81，Qualcomm IPQ5000)"
+          echo "- 内核：$(grep -o 'DISTRIB_KERNELVERSION=.*' openwrt/bin/targets/*/*/version.buildinfo 2>/dev/null | cut -d= -f2 || echo 5.15)"
+          echo "- 2.4G（IPQ5000 AHB）+ 5G（QCN6102 PCIe），板级 BDF 与 ART 校准数据均来自原厂"
+          echo "- 已做 Wi-Fi 强化：board_id 多分区探测（M81=0x24）、首次启动按频段自动配置（CN / 2.4G HE40 / 5G HE160 ch36）、诊断脚本 ra81-wifi-diag"
+          echo ""
+          echo "### 镜像内容校验"
+          for p in ath11k-firmware-ipq5018 ath11k-firmware-qcn6122 ipq-wifi-redmi_ax3000 kmod-ath11k-ahb kmod-ath11k-pci wpad-basic-wolfssl; do
+            if [ -n "$MANIFEST" ] && /usr/bin/grep -qE "^$p - " "$MANIFEST"; then
+              echo "- ✅ $p"
+            else
+              echo "- ⚠️ $p 未在 manifest 中找到，请谨慎刷入"
+            fi
+          done
+          echo ""
+          echo "刷机方式与注意事项见仓库 README。"
+        } > release.txt
+        echo "status=success" >> "$GITHUB_OUTPUT"
+
+    - name: Upload firmware to release
+      uses: softprops/action-gh-release@v2
+      if: steps.tag.outputs.status == 'success' && !cancelled()
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ steps.tag.outputs.release_tag }}
+        body_path: release.txt
+        files: ${{ env.FIRMWARE }}/*
+
+    - name: Delete workflow runs
+      uses: Mattraks/delete-workflow-runs@v2
+      with:
+        retain_days: 0
+        keep_minimum_runs: 2
+
+    - name: Remove old Releases
+      uses: dev-drprasad/delete-older-releases@master
+      if: env.UPLOAD_RELEASE == 'true' && !cancelled()
+      with:
+        keep_latest: 3
+        delete_tags: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Post-cleanup
+      run: |
+        sudo rm -rf /workdir/openwrt/dl
+        df -h

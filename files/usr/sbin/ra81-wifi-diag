@@ -1,0 +1,52 @@
+#!/bin/sh
+#
+# ra81-wifi-diag - one-shot Wi-Fi health report for Redmi AX3000 (RA81)
+#
+# Usage: ra81-wifi-diag [ > /tmp/wifi.txt ]
+#
+# Everything needed to tell WHY a radio is missing:
+#   1. board name (must be redmi,ax3000)
+#   2. board_id file  (0x24 = M81/Redmi, 0x10 = M79)
+#   3. caldata from ART (vendor radio calibration)
+#   4. board-2.bin BDF from ipq-wifi-redmi_ax3000
+#   5. phys / bands actually registered by ath11k
+#   6. ath11k kernel log
+#
+
+echo "=== board ==="
+cat /tmp/sysinfo/board_name 2>/dev/null || echo "unknown"
+echo
+
+echo "=== board_id (ath11k AH B) ==="
+cat /lib/firmware/IPQ5018/hw1.0/board_id-ahb-c000000.wifi 2>/dev/null \
+	|| echo "MISSING (2.4G will not come up)"
+echo
+
+echo "=== caldata / BDF ==="
+ls -l /lib/firmware/IPQ5018/hw1.0/ 2>/dev/null
+ls -l /lib/firmware/qcn6122/hw1.0/ 2>/dev/null
+echo
+
+echo "=== dmesg: ath11k ==="
+dmesg 2>/dev/null | /usr/bin/grep -iE "ath11k|qcn6122|ipq5018|board_id|caldata" | tail -40
+echo
+
+echo "=== phys and bands ==="
+for p in /sys/class/ieee80211/*; do
+	[ -e "$p" ] || continue
+	phy=$(basename "$p")
+	echo "--- $phy ---"
+	iw phy "$phy" info 2>/dev/null | /usr/bin/grep -E "^Band|2412 MHz|5180 MHz|^\s+\* [0-9]+ MHz \[[0-9]+\]" | head -12
+done
+echo
+
+echo "=== radio <-> phy mapping ==="
+uci -q show wireless 2>/dev/null | /usr/bin/grep -E "\.phy=|\.channel=|\.htmode=|\.country=|\.disabled="
+echo
+
+echo "=== iwinfo ==="
+iwinfo 2>/dev/null
+echo
+
+echo "=== hotplug log (ra81-wifi) ==="
+logread -e ra81-wifi 2>/dev/null | tail -10
