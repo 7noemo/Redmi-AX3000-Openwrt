@@ -70,11 +70,28 @@ ra81-wifi-diag
 一次性输出：board_name、board_id 当前值、caldata/BDF 是否就位、ath11k dmesg、
 每个 phy 的 band、radio↔phy 映射、iwinfo、hotplug 判定日志。
 
-### 5. 其余
+### 5. 预装软件（按 36MB 的槽位挑过）
 
-- 默认中文 LuCI（base / firewall / opkg / ttyd）
+`rootfs` / `rootfs_1` 各 **36MiB**（`0x02400000`），内核 + squashfs 都得塞进去，
+剩下的才是 `/overlay`。所以清单是按「体积/收益」筛的，不是一股脑塞满。
+
+| 类别 | 内容 |
+|---|---|
+| 代理 | **PassWall 2 + Xray**（nftables 透明代理，含 chinadns-ng、geoip/geosite 规则库） |
+| 网络 | SQM（CAKE 限速抗 bufferbloat）、DDNS（含 Cloudflare）、UPnP、WOL、ZeroTier、WireGuard |
+| 观测 | nlbwmon 流量统计、watchcat、https-dns-proxy、命令面板、uhttpd 设置 |
+| 命令行 | curl、wget-ssl、htop、nano、iperf3、mtr、socat、ip-full |
+| 内核 | `kmod-tcp-bbr` + `kmod-sched`（BBR 要的 fq）+ `kmod-sched-cake` |
+
+刻意**没装**的：Argon 主题、adblock、frpc、Docker、samba（无 USB）——
+都在 1MB 以上且非必需，会把 `/overlay` 挤到没法用。想加就自己 `opkg install`，
+构建时也会用 `stat` 卡一道 34MiB 的尺寸守卫，超了直接让 CI 失败，不会发出一个刷不进去的包。
+
+### 6. 其余
+
+- 默认中文 LuCI（base / firewall / opkg / ttyd，以及上面这些 app 的中文包）
 - 保留 `iw`、`iwinfo`、`ethtool`、`tcpdump-mini` 便于现场调试
-- 构建后自动用 manifest 校验 6 个 Wi-Fi 关键包，缺一个就在 release note 里标 ⚠️
+- 构建后自动用 manifest 校验 30+ 个关键包，缺一个就让构建失败
 
 ---
 

@@ -114,7 +114,15 @@ jobs:
         fail=0
         for p in kmod-ath11k kmod-ath11k-ahb kmod-ath11k-pci \
                  ath11k-firmware-ipq5018 ath11k-firmware-qcn6122 \
-                 ipq-wifi-redmi_ax3000 wireless-regdb iw luci-app-ttyd; do
+                 ipq-wifi-redmi_ax3000 wireless-regdb iw luci-app-ttyd \
+                 kmod-tcp-bbr kmod-sched kmod-sched-cake \
+                 curl ca-bundle wget-ssl htop nano iperf3 mtr socat ip-full \
+                 luci-app-commands luci-app-uhttpd luci-app-ddns luci-app-upnp \
+                 miniupnpd-nftables luci-app-wol luci-app-nlbwmon luci-app-sqm \
+                 luci-app-https-dns-proxy luci-app-watchcat luci-app-zerotier \
+                 luci-proto-wireguard \
+                 luci-app-passwall2 xray-core v2ray-geoip v2ray-geosite \
+                 chinadns-ng; do
           if grep -q "^CONFIG_PACKAGE_$p=y" .config; then
             echo "OK: $p"
           elif grep -q "^# CONFIG_PACKAGE_$p is not set" .config; then
@@ -127,6 +135,14 @@ jobs:
           fi
         done
         [ "$fail" -eq 0 ] || exit 1
+        echo "--- passwall2 core selection (must be Xray only) ---"
+        grep -E "^CONFIG_PACKAGE_luci-app-passwall2_" .config || true
+        for bad in sing-box haproxy shadowsocks-rust-sslocal shadowsocksr-libev-ssr-redir; do
+          if grep -q "^CONFIG_PACKAGE_$bad=y" .config; then
+            echo "FAIL: $bad got pulled in; the 36MB slot cannot hold it"
+            exit 1
+          fi
+        done
 
     - name: Download package
       run: |
@@ -150,8 +166,21 @@ jobs:
         cd openwrt/bin/targets/*/*
         rm -rf packages
         echo "FIRMWARE=$PWD" >> "$GITHUB_ENV"
-        echo "status=success" >> "$GITHUB_OUTPUT"
         ls -lh
+        # --- space guard -------------------------------------------------
+        # rootfs / rootfs_1 are 0x02400000 = 36MiB each; kernel + squashfs
+        # must fit inside one of them, the remainder becomes /overlay.
+        UBI=$(ls *nand-factory.ubi | head -1)
+        SZ=$(stat -c%s "$UBI")
+        LIMIT=$((36 * 1024 * 1024))
+        echo "image: $UBI = $((SZ / 1024)) KiB, slot = $((LIMIT / 1024)) KiB, overlay approx $(((LIMIT - SZ) / 1024)) KiB"
+        if [ "$SZ" -gt $((34 * 1024 * 1024)) ]; then
+          echo "::error::$UBI is $((SZ / 1024)) KiB - too big for the 36MiB slot (guard: 34MiB). Flashing would leave no overlay."
+          exit 1
+        fi
+        echo "image_size=$((SZ / 1024))" >> "$GITHUB_ENV"
+        echo "overlay_size=$(((LIMIT - SZ) / 1024))" >> "$GITHUB_ENV"
+        echo "status=success" >> "$GITHUB_OUTPUT"
 
     - name: Upload firmware directory
       uses: actions/upload-artifact@v4
@@ -177,6 +206,8 @@ jobs:
           echo "- 设备：Redmi AX3000 (RA81 / M81，Qualcomm IPQ5000)"
           echo "- 内核：${KVER:-unknown}（ath11k 由 6.1.24 回移）"
           echo "- 版本号：${REV:-unknown}"
+          echo "- 镜像占用：${image_size:-?} KiB / 36MiB 槽位，/overlay 约 ${overlay_size:-?} KiB"
+          echo "- 预装：PassWall2(Xray) + 中文界面 + SQM/DDNS/UPnP/WOL/流量统计/ZeroTier/WireGuard + BBR/fq"
           echo "- 2.4G（IPQ5000 AHB）+ 5G（QCN6102 PCIe），板级 BDF 与 ART 校准数据均来自原厂"
           echo "- 已做 Wi-Fi 强化：board_id 多分区探测（M81=0x24）、首次启动按频段自动配置（CN / 2.4G HE40 / 5G HE160 ch36）、诊断脚本 ra81-wifi-diag"
           echo ""

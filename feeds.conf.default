@@ -1,0 +1,9 @@
+src-git packages https://git.openwrt.org/feed/packages.git^063b2393c
+src-git luci https://git.openwrt.org/project/luci.git^b07cf9dcfc
+src-git routing https://git.openwrt.org/feed/routing.git^6487539
+src-git telephony https://git.openwrt.org/feed/telephony.git^86af194
+
+# --- proxy stack (pinned, so a force-push upstream cannot break the build) ---
+# passwall2 = LuCI app, passwall-packages = cores (xray/sing-box/...) + geodata
+src-git passwall_packages https://github.com/Openwrt-Passwall/openwrt-passwall-packages.git^da712cf06cf4e6fd39e147fb36e6ec936003fcc9
+src-git passwall2 https://github.com/Openwrt-Passwall/openwrt-passwall2.git^8c67190debee97bc2b3d68c3e41521ba9ddea3b5
