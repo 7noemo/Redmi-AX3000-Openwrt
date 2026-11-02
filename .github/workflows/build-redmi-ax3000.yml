@@ -166,10 +166,17 @@ jobs:
       if: env.UPLOAD_RELEASE == 'true' && steps.compile.outputs.status == 'success' && !cancelled()
       run: |
         echo "release_tag=$(date +"%Y.%m.%d-%H%M")" >> "$GITHUB_OUTPUT"
-        MANIFEST=$(ls "$FIRMWARE"/*.manifest 2>/dev/null | head -1)
+        MANIFEST=$(ls "$FIRMWARE"/*.manifest 2>/dev/null | head -1 || true)
+        # kernel version only exists in the manifest, not in version.buildinfo
+        KVER=""
+        if [ -n "$MANIFEST" ]; then
+          KVER=$(awk '$1=="kernel"{print $3}' "$MANIFEST" | head -1 | cut -d- -f1 || true)
+        fi
+        REV=$(cat openwrt/bin/targets/*/*/version.buildinfo 2>/dev/null | tr -d '\n' || true)
         {
           echo "- 设备：Redmi AX3000 (RA81 / M81，Qualcomm IPQ5000)"
-          echo "- 内核：$(grep -o 'DISTRIB_KERNELVERSION=.*' openwrt/bin/targets/*/*/version.buildinfo 2>/dev/null | cut -d= -f2 || echo 5.15)"
+          echo "- 内核：${KVER:-unknown}（ath11k 由 6.1.24 回移）"
+          echo "- 版本号：${REV:-unknown}"
           echo "- 2.4G（IPQ5000 AHB）+ 5G（QCN6102 PCIe），板级 BDF 与 ART 校准数据均来自原厂"
           echo "- 已做 Wi-Fi 强化：board_id 多分区探测（M81=0x24）、首次启动按频段自动配置（CN / 2.4G HE40 / 5G HE160 ch36）、诊断脚本 ra81-wifi-diag"
           echo ""

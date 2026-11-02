@@ -1,0 +1,71 @@
+#!/bin/sh
+#
+# Redmi AX3000 (RA81) - software datapath tuning
+#
+# RA81 是全千兆口（1 WAN + 3 LAN），IPQ5018 双核 A53 走软件 NAT 大约
+# 1.2-1.5 Gbps，本来就高于千兆口的实际上限（约 940 Mbps）。所以收益点不在
+# 峰值转发，而在：
+#
+#   1. flow offload  - 已建立的连接跳过完整协议栈
+#   2. BBR + fq      - 高 RTT 链路下吞吐更稳
+#   3. RPS/XPS       - 软中断分摊到两个核，避免单核打满
+#
+# 说明：本树（hzyitc 5.15）只有 qca-nss-dp + qca-ssdk 把以太网跑起来，
+# 没有 qca-nss-drv / qca-nss-ecm，因此没有硬件 NAT offload，只能用软件
+# flowtable。好处是 SQM/CAKE 依然可用——但两者互斥：开了 SQM 就不要再开
+# flow offloading，LuCI 会自动帮你关。
+
+. /lib/functions.sh
+
+log() { logger -t ra81-tuning "$*"; echo "$*"; }
+
+# ---------------------------------------------------------- flow offload ----
+if uci -q get firewall.@defaults[0] >/dev/null 2>&1; then
+	uci -q set firewall.@defaults[0].flow_offloading='1'
+	uci -q set firewall.@defaults[0].flow_offloading_hw='0'
+	uci -q commit firewall
+	log "flow offloading: enabled (software)"
+fi
+
+# --------------------------------------------------------------- sysctl -----
+mkdir -p /etc/sysctl.d
+cat > /etc/sysctl.d/99-ra81-tuning.conf <<'EOF'
+# BBR + fq：WAN 有真实 RTT 时比 cubic 更抗丢包
+net.core.default_qdisc=fq
+net.ipv4.tcp_congestion_control=bbr
+
+# 1GbE 带 GRO 的backlog，默认值偏保守
+net.core.netdev_max_backlog=16384
+net.core.somaxconn=1024
+
+# 多连接场景下别让 conntrack 先成为瓶颈
+net.netfilter.nf_conntrack_max=65536
+EOF
+
+sysctl -q -p /etc/sysctl.d/99-ra81-tuning.conf 2>/dev/null || \
+	log "sysctl apply failed, will take effect on next boot"
+
+# ----------------------------------------------------------------- RPS/XPS ---
+# 双核：把以太网的收包软中断压到 CPU1，CPU0 留给转发路径
+ncpu=$(grep -c ^processor /proc/cpuinfo 2>/dev/null || echo 2)
+[ "$ncpu" -ge 2 ] || ncpu=2
+
+mask=$(printf '%x' $(( ((1 << ncpu) - 1) & ~1 )) 2>/dev/null || echo 2)
+
+for dev in /sys/class/net/*; do
+	name=$(basename "$dev")
+	case "$name" in
+		lo|ifb*|br-*|docker*|veth*|wlan*|phy*) continue ;;
+	esac
+
+	for q in "$dev"/queues/rx-*/rps_cpus; do
+		[ -w "$q" ] && echo "$mask" > "$q" 2>/dev/null
+	done
+	for q in "$dev"/queues/tx-*/xps_cpus; do
+		[ -w "$q" ] && echo "$mask" > "$q" 2>/dev/null
+	done
+	log "RPS/XPS $name -> mask $mask"
+done
+
+log "tuning applied"
+exit 0

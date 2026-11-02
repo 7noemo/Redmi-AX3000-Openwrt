@@ -9,7 +9,10 @@
 #      radios by BAND (not index) on first boot: CN country, 2.4G HE40 ch6,
 #      5G HE160 ch36
 #   3. files/ overlay adds /usr/sbin/ra81-wifi-diag for field debugging
-#   4. sanity-check that the overlay really lands in the image
+#   4. files/ overlay adds /etc/uci-defaults/99-ra81-tuning: software flow
+#      offload + BBR/fq + RPS/XPS across both A53 cores (no HW NAT on this
+#      tree - qca-nss-dp/ssdk only, no nss-drv/ecm)
+#   5. sanity-check that the overlay really lands in the image
 #
 
 set -e
@@ -20,6 +23,7 @@ echo "--- overlay check ---"
 for f in \
 	etc/hotplug.d/firmware/10-ath11k-board_id \
 	etc/uci-defaults/99-ra81-wifi \
+	etc/uci-defaults/99-ra81-tuning \
 	usr/sbin/ra81-wifi-diag ; do
 	if [ -f "files/$f" ]; then
 		echo "OK: files/$f"
@@ -31,6 +35,7 @@ done
 
 # Make sure the overlay scripts are executable inside the image
 chmod 0755 files/etc/uci-defaults/99-ra81-wifi \
+	files/etc/uci-defaults/99-ra81-tuning \
 	files/usr/sbin/ra81-wifi-diag \
 	files/etc/hotplug.d/firmware/10-ath11k-board_id
 

@@ -85,7 +85,7 @@ ra81-wifi-diag
 | 启动 / 交换机 / 有线 | ✅ |
 | 2.4G Wi-Fi | ✅（依赖 board_id 判定，本仓库已加固） |
 | 5G Wi-Fi | ✅ 但需设对 `country/width/channel`；`HE160` 落在 52–64 时要等 DFS 雷达检测约 60 秒 |
-| NSS 硬件加速 | ❌ 上游未启用，NAT 转发靠 CPU（千兆能跑满，但大流量时 CPU 占用高） |
+| NSS 硬件加速 | ❌ 上游未启用（树里只有 `qca-nss-dp`/`qca-ssdk`，没有 `nss-drv`/`ecm`），NAT 靠 CPU；已默认开启软件 flow offload + BBR/fq + RPS/XPS 补偿 |
 | 内核 / 用户态 | 5.15 / OpenWrt 23.05（**偏老，这是能用 2.4G 的代价**） |
 | 内存 | 256MB，双频全开较紧；不建议再装重插件（Docker 免谈） |
 | 刷机风险 | 需处理 rootfs / rootfs_1 双槽位，刷错槽位会变砖，UART 是最终保险 |
@@ -132,6 +132,31 @@ logread -e ra81-wifi    # 看首次启动的判定结果
 
 如果 2.4G 仍不出现：把 `ra81-wifi-diag` 输出发出来，
 90% 是 `board_id` 判定成了 0x10（M79），或 ART 分区偏移与你的固件版本不同。
+
+### 之后如何升级
+
+release 里**只有 `nand-factory.ubi`，没有 sysupgrade.bin**，这是上游设备定义的决定
+（`IMAGES := nand-factory.ubi`）。RA81 是 A/B 双槽，升级就是把这个 `.ubi` 刷进
+**当前没在跑的那个槽**，再切 flag：
+
+```sh
+# 先备份配置（换槽后会用到新系统的默认配置）
+sysupgrade -b /tmp/ra81-backup.tar.gz
+
+cd /tmp && wget <新版本 nand-factory.ubi>
+mtd="$(grep -oE 'ubi.mtd=[a-zA-Z0-9_-]*' /proc/cmdline | cut -d= -f2)"
+if [ "$mtd" = "rootfs" ]; then
+    ubiformat /dev/mtd19 -f openwrt-*nand-factory.ubi -y   # 写 rootfs_1
+    fw_setenv flag_try_sys2_failed 0; fw_setenv flag_boot_rootfs 1; fw_setenv flag_last_success 1
+else
+    ubiformat /dev/mtd18 -f openwrt-*nand-factory.ubi -y   # 写 rootfs
+    fw_setenv flag_try_sys1_failed 0; fw_setenv flag_boot_rootfs 0; fw_setenv flag_last_success 0
+fi
+reboot
+```
+
+好处是**旧系统还在另一个槽里**，新固件起不来时改回 `flag_boot_rootfs` 即可回退，
+不至于变砖。
 
 ---
 
